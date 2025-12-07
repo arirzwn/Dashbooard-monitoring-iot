@@ -17,7 +17,9 @@ function App() {
   });
 
   useEffect(() => {
-    // Listen to sensor data changes
+    // 🔥 REAL-TIME LISTENER untuk data sensor
+    // onValue() akan otomatis dipanggil setiap kali data di Firebase berubah
+    // Tidak perlu refresh manual atau polling!
     const sensorRef = ref(database, "sensors");
     const unsubscribeSensors = onValue(sensorRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -31,7 +33,8 @@ function App() {
       }
     });
 
-    // Listen to actuator state changes
+    // 🔥 REAL-TIME LISTENER untuk status aktuator
+    // Sama seperti sensor, ini akan update otomatis ketika ada perubahan
     const actuatorRef = ref(database, "actuators");
     const unsubscribeActuators = onValue(actuatorRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -43,6 +46,8 @@ function App() {
       }
     });
 
+    // Cleanup: unsubscribe ketika component unmount
+    // Ini penting untuk menghindari memory leaks
     return () => {
       unsubscribeSensors();
       unsubscribeActuators();
@@ -50,6 +55,8 @@ function App() {
   }, []);
 
   // Function to toggle actuator state
+  // 🎛️ Ketika user toggle switch, data langsung ditulis ke Firebase
+  // Device IoT yang listening akan mendapat update real-time!
   const toggleActuator = (actuatorName) => {
     const newState = !actuatorState[actuatorName];
     const actuatorRef = ref(database, `actuators/${actuatorName}`);

@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
-import { database } from "./firebase";
-import { ref, onValue, set } from "firebase/database";
+import { db } from "./firebase";
+import { doc, onSnapshot, collection, query, orderBy, limit } from "firebase/firestore";
 import "./App.css";
+
+const DEVICE_ID = "esp32-kelompok2";
+const MAIN_COLLECTION = "devices";
 
 function App() {
   const [sensorData, setSensorData] = useState({
@@ -16,54 +19,100 @@ function App() {
     katup: false,
   });
 
-  useEffect(() => {
-    // Listen to sensor data changes
-    const sensorRef = ref(database, "sensors");
-    const unsubscribeSensors = onValue(sensorRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setSensorData({
-          suhuUdara: data.suhuUdara || 0,
-          kelembapanUdara: data.kelembapanUdara || 0,
-          kelembapanTanah: data.kelembapanTanah || 0,
-          jarak: data.jarak || 0,
-        });
-      }
-    });
+  const [connectionStatus, setConnectionStatus] = useState("Connecting...");
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
 
-    // Listen to actuator state changes
-    const actuatorRef = ref(database, "actuators");
-    const unsubscribeActuators = onValue(actuatorRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        setActuatorState({
-          pompa: data.pompa || false,
-          katup: data.katup || false,
-        });
+  useEffect(() => {
+
+    // Listen to main device status document for actuator states
+    const mainStatusRef = doc(db, MAIN_COLLECTION, DEVICE_ID);
+
+    const unsubscribeMain = onSnapshot(
+      mainStatusRef,
+      (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data();
+
+          // Update last update time
+          setLastUpdateTime(new Date());
+          setConnectionStatus("🟢 Real-time Active");
+
+          // Update actuator state with all possible field names
+          setActuatorState({
+            pompa:
+              data.status_pump_rill ||
+              data.status_pump ||
+              data.pompa ||
+              data.pump ||
+              data.Pompa ||
+              false,
+            katup:
+              data.status_valve_rill ||
+              data.status_valve ||
+              data.katup ||
+              data.valve ||
+              data.Katup ||
+              false,
+          });
+        } else {
+          setConnectionStatus("Waiting for ESP32 to send data...");
+        }
+      },
+      (error) => {
+        setConnectionStatus("Error: " + error.message);
       }
-    });
+    );
+
+    // Listen to logs collection for sensor data
+    const logsQuery = query(
+      collection(db, MAIN_COLLECTION, DEVICE_ID, "logs"),
+      orderBy("ts", "desc"),
+      limit(1)
+    );
+
+    const unsubscribeLogs = onSnapshot(
+      logsQuery,
+      (querySnapshot) => {
+        if (!querySnapshot.empty) {
+          const latestLog = querySnapshot.docs[0].data();
+
+          const newSensorData = {
+            suhuUdara: latestLog.temp || 0,
+            kelembapanUdara: latestLog.hum || 0,
+            kelembapanTanah: latestLog.soil || 0,
+            jarak: latestLog.dist || 0,
+          };
+
+          setSensorData(newSensorData);
+        }
+      },
+      (error) => {
+        // Error listening to logs
+      }
+    );
 
     return () => {
-      unsubscribeSensors();
-      unsubscribeActuators();
+      unsubscribeMain();
+      unsubscribeLogs();
     };
   }, []);
 
-  // Function to toggle actuator state
-  const toggleActuator = (actuatorName) => {
-    const newState = !actuatorState[actuatorName];
-    const actuatorRef = ref(database, `actuators/${actuatorName}`);
-    set(actuatorRef, newState);
-  };
-
   return (
-    <main className="w-full bg-gray-900 min-h-screen p-0">
+    <main className="w-full min-h-screen p-0">
       <div className="w-full px-4 py-6">
         <div className="flex flex-wrap justify-between items-center gap-3 mb-8">
           <div className="flex flex-col gap-1">
             <h1 className="text-white text-4xl font-black leading-tight tracking-[-0.033em]">
               IoT Monitoring Dashboard
             </h1>
+            <div className="flex items-center gap-3">
+              {/* <p className="text-gray-400 text-sm">{connectionStatus}</p> */}
+              {lastUpdateTime && (
+                <p className="text-gray-500 text-xs">
+                  Last update: {lastUpdateTime.toLocaleTimeString()}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -113,72 +162,44 @@ function App() {
           <div className="flex items-center gap-4 bg-white/5 dark:bg-white/[.02] p-4 rounded-xl border border-white/10 dark:border-white/5 justify-between">
             <div className="flex items-center gap-4">
               <div className="text-white flex items-center justify-center rounded-lg bg-blue-500/20 shrink-0 size-12">
-                <span className="material-symbols-outlined text-blue-500 text-3xl">
-                  💧
-                </span>
+                <span className="text-3xl">💧</span>
               </div>
               <p className="text-white text-base font-medium leading-normal flex-1 truncate">
                 Pompa
               </p>
             </div>
             <div className="shrink-0">
-              <label
-                className={`relative flex h-[31px] w-[51px] cursor-pointer items-center rounded-full border-none p-0.5 ${
+              <span
+                className={`px-4 py-2 rounded-lg font-semibold text-sm ${
                   actuatorState.pompa
-                    ? "justify-end bg-blue-500"
-                    : "justify-start bg-gray-600 dark:bg-gray-700"
+                    ? "bg-green-500 text-white"
+                    : "bg-gray-600 text-gray-300"
                 }`}
               >
-                <input
-                  checked={actuatorState.pompa}
-                  onChange={() => toggleActuator("pompa")}
-                  className="invisible absolute"
-                  type="checkbox"
-                />
-                <div
-                  className="h-full w-[27px] rounded-full bg-white transition-transform"
-                  style={{
-                    boxShadow:
-                      "rgba(0, 0, 0, 0.15) 0px 3px 8px, rgba(0, 0, 0, 0.06) 0px 3px 1px",
-                  }}
-                ></div>
-              </label>
+                {actuatorState.pompa ? "ON" : "OFF"}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center gap-4 bg-white/5 dark:bg-white/[.02] p-4 rounded-xl border border-white/10 dark:border-white/5 justify-between">
             <div className="flex items-center gap-4">
               <div className="text-white flex items-center justify-center rounded-lg bg-blue-500/20 shrink-0 size-12">
-                <span className="material-symbols-outlined text-blue-500 text-3xl">
-                  🔧
-                </span>
+                <span className="text-3xl">🔧</span>
               </div>
               <p className="text-white text-base font-medium leading-normal flex-1 truncate">
                 Katup
               </p>
             </div>
             <div className="shrink-0">
-              <label
-                className={`relative flex h-[31px] w-[51px] cursor-pointer items-center rounded-full border-none p-0.5 ${
+              <span
+                className={`px-4 py-2 rounded-lg font-semibold text-sm ${
                   actuatorState.katup
-                    ? "justify-end bg-blue-500"
-                    : "justify-start bg-gray-600 dark:bg-gray-700"
+                    ? "bg-green-500 text-white"
+                    : "bg-gray-600 text-gray-300"
                 }`}
               >
-                <input
-                  checked={actuatorState.katup}
-                  onChange={() => toggleActuator("katup")}
-                  className="invisible absolute"
-                  type="checkbox"
-                />
-                <div
-                  className="h-full w-[27px] rounded-full bg-white transition-transform"
-                  style={{
-                    boxShadow:
-                      "rgba(0, 0, 0, 0.15) 0px 3px 8px, rgba(0, 0, 0, 0.06) 0px 3px 1px",
-                  }}
-                ></div>
-              </label>
+                {actuatorState.katup ? "OPEN" : "CLOSE"}
+              </span>
             </div>
           </div>
         </div>

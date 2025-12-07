@@ -182,7 +182,7 @@ Anda menggunakan **Firebase Realtime Database**, bukan Firestore:
    - Cek tab Network untuk koneksi ke Firebase
 
 3. **Verifikasi Data Structure**
-   - Pastikan struktur di Firebase match dengan yang di-expect di code
+   - Pastikan struktur di Firebase sesuai dengan yang diharapkan di code
    - Path harus exact: `sensors/suhuUdara` bukan `sensor/suhuudara`
 
 ## Kesimpulan
